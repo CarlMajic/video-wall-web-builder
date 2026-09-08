@@ -30,3 +30,7 @@ The web builder's `Export JSON` button includes a `blender_layout` block. The
 Blender InfiLED Video Wall Builder add-on can import that JSON and assemble the
 wall using the exported columns, rows, support mode, tower spacing, H-tube
 setting, and right-edge tower setting.
+
+The `LASSO CSV` export creates a starter line-item list for sales testing. SKU
+fields are intentionally blank until the exact LASSO/Intelevent inventory item
+names and codes are confirmed.

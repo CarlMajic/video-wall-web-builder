@@ -130,6 +130,8 @@ h1 {
 .actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -483,7 +485,7 @@ h1 {
   }
 
   .actions button {
-    flex: 1;
+    flex: 1 1 145px;
   }
 
   .controls,

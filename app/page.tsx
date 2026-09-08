@@ -98,6 +98,48 @@ function buildBlenderLayout({
   };
 }
 
+function buildLassoRows({
+  result,
+  supportMode,
+}: {
+  result: {
+    cabinets: number;
+    processors: number;
+    dataHomeRuns: number;
+    dataJumpers: number;
+    circuits: number;
+    powerJumpers: number;
+    brackets1000: number;
+    brackets500: number;
+    towers: number;
+    stackers: number;
+    hTubes: number;
+    totalPixelsWide: number;
+    totalPixelsHigh: number;
+  };
+  supportMode: 'GROUND' | 'FLOWN';
+}) {
+  const note = `${INFILED_PROFILE.model}; ${formatNumber(result.totalPixelsWide)} x ${formatNumber(result.totalPixelsHigh)} px`;
+  return [
+    { category: 'Video Wall', sku: '', item: 'InfiLED DB2.6 LED Cabinet', quantity: result.cabinets, unit: 'each', notes: note },
+    { category: 'Video Processing', sku: '', item: PROCESSOR_PROFILE.name, quantity: result.processors, unit: 'each', notes: 'Estimated from pixel count and data ports' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Home Run', quantity: result.dataHomeRuns, unit: 'each', notes: 'One home run per calculated data port' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Jumper', quantity: result.dataJumpers, unit: 'each', notes: 'Starter estimate; confirm shop cable rule' },
+    { category: 'Power', sku: '', item: '20A Video Wall Circuit', quantity: result.circuits, unit: 'each', notes: 'Estimated from max watts at 80 percent load' },
+    { category: 'Power', sku: '', item: 'Video Wall Power Jumper', quantity: result.powerJumpers, unit: 'each', notes: 'Placeholder estimate; confirm manufacturer chain limits' },
+    { category: 'Hardware', sku: '', item: 'InfiLED 1000mm Hanging Bracket', quantity: result.brackets1000, unit: 'each', notes: supportMode },
+    { category: 'Hardware', sku: '', item: 'InfiLED 500mm Hanging Bracket', quantity: result.brackets500, unit: 'each', notes: supportMode },
+    { category: 'Ground Support', sku: '', item: 'InfiLED Support Tower', quantity: result.towers, unit: 'each', notes: 'Ground support only' },
+    { category: 'Ground Support', sku: '', item: 'InfiLED Stacking Stacker', quantity: result.stackers, unit: 'each', notes: 'Ground support only' },
+    { category: 'Ground Support', sku: '', item: 'InfiLED H-Tube', quantity: result.hTubes, unit: 'each', notes: 'Ground support only' },
+  ].filter((row) => row.quantity > 0);
+}
+
+function csvEscape(value: string | number) {
+  const text = String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
 export default function Home() {
   const [requestedWidthFt, setRequestedWidthFt] = useState(DEFAULT_WIDTH_FT);
   const [requestedHeightFt, setRequestedHeightFt] = useState(DEFAULT_HEIGHT_FT);
@@ -204,8 +246,8 @@ export default function Home() {
     setAddRightEdgeTower(false);
   }
 
-  function exportJson() {
-    const blender_layout = buildBlenderLayout({
+  function blenderLayout() {
+    return buildBlenderLayout({
       requestedWidthFt,
       requestedHeightFt,
       pixelPitchMm,
@@ -215,6 +257,40 @@ export default function Home() {
       addRightEdgeTower,
       result,
     });
+  }
+
+  function exportBlenderJson() {
+    const layout = blenderLayout();
+    const blob = new Blob([JSON.stringify(layout, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `video-wall-blender-${result.columns}x${result.rows}-infiled-db2-6.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportLassoCsv() {
+    const rows = buildLassoRows({ result, supportMode });
+    const headers = ['Category', 'SKU', 'Item', 'Quantity', 'Unit', 'Notes'];
+    const lines = [
+      headers.join(','),
+      ...rows.map((row) =>
+        [row.category, row.sku, row.item, row.quantity, row.unit, row.notes].map(csvEscape).join(','),
+      ),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `video-wall-lasso-${result.columns}x${result.rows}-infiled-db2-6.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportFullJson() {
+    const blender_layout = blenderLayout();
+    const lasso_rows = buildLassoRows({ result, supportMode });
     const payload = {
       schema: 'majic.video_wall.web_builder',
       version: 1,
@@ -231,12 +307,13 @@ export default function Home() {
       },
       result,
       blender_layout,
+      lasso_rows,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `video-wall-${result.columns}x${result.rows}-infiled-db2-6.json`;
+    link.download = `video-wall-full-${result.columns}x${result.rows}-infiled-db2-6.json`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -259,8 +336,14 @@ export default function Home() {
             <button type="button" className="secondary-button" onClick={resetBuilder}>
               Reset
             </button>
-            <button type="button" className="primary-button" onClick={exportJson}>
-              Export JSON
+            <button type="button" className="secondary-button" onClick={exportFullJson}>
+              Full JSON
+            </button>
+            <button type="button" className="secondary-button" onClick={exportLassoCsv}>
+              LASSO CSV
+            </button>
+            <button type="button" className="primary-button" onClick={exportBlenderJson}>
+              Blender JSON
             </button>
           </div>
         </header>

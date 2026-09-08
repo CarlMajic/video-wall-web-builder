@@ -35,7 +35,9 @@ const elements = {
   includeHTubes: document.querySelector('#includeHTubes'),
   addRightEdgeTower: document.querySelector('#addRightEdgeTower'),
   resetButton: document.querySelector('#resetButton'),
-  exportButton: document.querySelector('#exportButton'),
+  exportFullJsonButton: document.querySelector('#exportFullJsonButton'),
+  exportLassoCsvButton: document.querySelector('#exportLassoCsvButton'),
+  exportBlenderJsonButton: document.querySelector('#exportBlenderJsonButton'),
   cabinetPixels: document.querySelector('#cabinetPixels'),
   previewNote: document.querySelector('#previewNote'),
   actualWall: document.querySelector('#actualWall'),
@@ -102,6 +104,28 @@ function buildBlenderLayout(request, result) {
     total_pixels_height: result.totalPixelsHigh,
     cabinet_count: result.cabinets,
   };
+}
+
+function buildLassoRows(result, supportMode) {
+  const note = `${INFILED_PROFILE.model}; ${formatNumber(result.totalPixelsWide)} x ${formatNumber(result.totalPixelsHigh)} px`;
+  return [
+    { category: 'Video Wall', sku: '', item: 'InfiLED DB2.6 LED Cabinet', quantity: result.cabinets, unit: 'each', notes: note },
+    { category: 'Video Processing', sku: '', item: PROCESSOR_PROFILE.name, quantity: result.processors, unit: 'each', notes: 'Estimated from pixel count and data ports' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Home Run', quantity: result.dataHomeRuns, unit: 'each', notes: 'One home run per calculated data port' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Jumper', quantity: result.dataJumpers, unit: 'each', notes: 'Starter estimate; confirm shop cable rule' },
+    { category: 'Power', sku: '', item: '20A Video Wall Circuit', quantity: result.circuits, unit: 'each', notes: 'Estimated from max watts at 80 percent load' },
+    { category: 'Power', sku: '', item: 'Video Wall Power Jumper', quantity: result.powerJumpers, unit: 'each', notes: 'Placeholder estimate; confirm manufacturer chain limits' },
+    { category: 'Hardware', sku: '', item: 'InfiLED 1000mm Hanging Bracket', quantity: result.brackets1000, unit: 'each', notes: supportMode },
+    { category: 'Hardware', sku: '', item: 'InfiLED 500mm Hanging Bracket', quantity: result.brackets500, unit: 'each', notes: supportMode },
+    { category: 'Ground Support', sku: '', item: 'InfiLED Support Tower', quantity: result.towers, unit: 'each', notes: 'Ground support only' },
+    { category: 'Ground Support', sku: '', item: 'InfiLED Stacking Stacker', quantity: result.stackers, unit: 'each', notes: 'Ground support only' },
+    { category: 'Ground Support', sku: '', item: 'InfiLED H-Tube', quantity: result.hTubes, unit: 'each', notes: 'Ground support only' },
+  ].filter((row) => row.quantity > 0);
+}
+
+function csvEscape(value) {
+  const text = String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 function calculate() {
@@ -223,6 +247,7 @@ function update() {
     request,
     result,
     blender_layout: buildBlenderLayout(request, result),
+    lasso_rows: buildLassoRows(result, request.supportMode),
   };
 
   const flown = request.supportMode === 'FLOWN';
@@ -266,12 +291,39 @@ function resetBuilder() {
   update();
 }
 
-function exportJson() {
+function exportBlenderJson() {
+  const blob = new Blob([JSON.stringify(latestResult.blender_layout, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `video-wall-blender-${latestResult.result.columns}x${latestResult.result.rows}-infiled-db2-6.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportLassoCsv() {
+  const headers = ['Category', 'SKU', 'Item', 'Quantity', 'Unit', 'Notes'];
+  const lines = [
+    headers.join(','),
+    ...latestResult.lasso_rows.map((row) =>
+      [row.category, row.sku, row.item, row.quantity, row.unit, row.notes].map(csvEscape).join(','),
+    ),
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `video-wall-lasso-${latestResult.result.columns}x${latestResult.result.rows}-infiled-db2-6.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportFullJson() {
   const blob = new Blob([JSON.stringify(latestResult, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `video-wall-${latestResult.result.columns}x${latestResult.result.rows}-infiled-db2-6.json`;
+  link.download = `video-wall-full-${latestResult.result.columns}x${latestResult.result.rows}-infiled-db2-6.json`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -290,6 +342,8 @@ function exportJson() {
 });
 
 elements.resetButton.addEventListener('click', resetBuilder);
-elements.exportButton.addEventListener('click', exportJson);
+elements.exportFullJsonButton.addEventListener('click', exportFullJson);
+elements.exportLassoCsvButton.addEventListener('click', exportLassoCsv);
+elements.exportBlenderJsonButton.addEventListener('click', exportBlenderJson);
 
 update();
