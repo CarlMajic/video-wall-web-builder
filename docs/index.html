@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Video Wall Builder</title>
+    <meta
+      name="description"
+      content="Sales sizing calculator for InfiLED video walls."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <div class="builder">
+        <header class="toolbar">
+          <div class="brand">
+            <img class="brand-logo" src="assets/majic-logo.png" alt="Majic Productions" />
+            <div>
+              <p class="eyebrow">Majic Productions</p>
+              <h1>Video Wall Builder</h1>
+              <p class="subtitle">
+                Sales sizing draft for fitting whole video wall cabinets inside a requested wall size.
+              </p>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="button" class="secondary-button" id="resetButton">Reset</button>
+            <button type="button" class="primary-button" id="exportButton">Export JSON</button>
+          </div>
+        </header>
+
+        <section class="controls" aria-label="Wall controls">
+          <label class="control-field">
+            <span>Width Ft</span>
+            <input class="control-input" id="requestedWidthFt" type="number" min="1" step="0.5" value="20" />
+          </label>
+          <label class="control-field">
+            <span>Height Ft</span>
+            <input class="control-input" id="requestedHeightFt" type="number" min="1" step="0.5" value="10" />
+          </label>
+          <label class="control-field">
+            <span>Vendor</span>
+            <select class="control-input" disabled>
+              <option>InfiLED</option>
+            </select>
+          </label>
+          <label class="control-field">
+            <span>Panel</span>
+            <select class="control-input" disabled>
+              <option>DB2.6 / 500 mm</option>
+            </select>
+          </label>
+          <label class="control-field">
+            <span>Pixel Pitch</span>
+            <input class="control-input" id="pixelPitchMm" type="number" min="0.5" step="0.01" value="2.6" />
+          </label>
+          <label class="control-field">
+            <span>Support</span>
+            <select class="control-input" id="supportMode">
+              <option value="GROUND">Ground</option>
+              <option value="FLOWN">Flown</option>
+            </select>
+          </label>
+          <label class="control-field">
+            <span>Tower Spacing</span>
+            <select class="control-input" id="towerSpacingM">
+              <option value="1">1000 mm</option>
+              <option value="1.5">1500 mm</option>
+            </select>
+          </label>
+          <div class="toggle-stack">
+            <label>
+              <input type="checkbox" id="includeHTubes" checked />
+              H-tubes
+            </label>
+            <label>
+              <input type="checkbox" id="addRightEdgeTower" />
+              Right tower
+            </label>
+          </div>
+        </section>
+
+        <section class="workspace">
+          <section class="panel profile-panel">
+            <div class="panel-heading">
+              <h2>Panel Profile</h2>
+              <p>InfiLED DB2.6 / IL-RSS-IRDB2.6mk2</p>
+            </div>
+            <div class="parts-list">
+              <div class="part-row"><span>Cabinet size</span><strong>500 mm x 500 mm</strong></div>
+              <div class="part-row"><span>Cabinet depth</span><strong>75.5 mm</strong></div>
+              <div class="part-row"><span>Cabinet pixels</span><strong id="cabinetPixels">192 x 192</strong></div>
+              <div class="part-row"><span>Cabinet weight</span><strong>18.52 lb</strong></div>
+              <div class="part-row"><span>Brightness</span><strong>2,000 nits</strong></div>
+              <div class="part-row"><span>Refresh rate</span><strong>7,680 Hz</strong></div>
+            </div>
+          </section>
+
+          <section class="panel preview-panel">
+            <div class="panel-heading">
+              <h2>Wall Preview</h2>
+              <p id="previewNote">12 columns x 6 rows, fit under requested size</p>
+            </div>
+            <div class="count-strip">
+              <div class="count-card"><span>Actual Wall</span><strong id="actualWall">19.69 ft x 9.84 ft</strong></div>
+              <div class="count-card"><span>Panels</span><strong id="panelCount">72</strong></div>
+              <div class="count-card"><span>Resolution</span><strong id="resolution">2,304 x 1,152</strong></div>
+              <div class="count-card"><span>Processors</span><strong id="processors">2 x NovaStar MCTRL600</strong></div>
+            </div>
+            <div class="preview-stage">
+              <div class="wall-grid" id="wallGrid"></div>
+            </div>
+            <div class="fit-summary">
+              <div class="part-row"><span>Client requested</span><strong id="requestedSize">20 ft x 10 ft</strong></div>
+              <div class="part-row"><span>Fit shortfall</span><strong id="shortfall">0.31 ft x 0.16 ft</strong></div>
+              <div class="part-row"><span>Total pixels</span><strong id="totalPixels">2,654,208</strong></div>
+            </div>
+          </section>
+
+          <section class="panel summary-panel">
+            <div class="panel-heading">
+              <h2>Parts Summary</h2>
+              <p>Starter counts for sales review</p>
+            </div>
+            <div class="summary-grid">
+              <section class="summary-block">
+                <h3>Signal</h3>
+                <div class="parts-list">
+                  <div class="part-row"><span>Data ports</span><strong id="dataPorts">5</strong></div>
+                  <div class="part-row"><span>Cabinets per port</span><strong id="cabinetsPerPort">17</strong></div>
+                  <div class="part-row"><span>Data home runs</span><strong id="dataHomeRuns">5</strong></div>
+                  <div class="part-row"><span>Panel data jumpers</span><strong id="dataJumpers">67</strong></div>
+                </div>
+              </section>
+              <section class="summary-block">
+                <h3>Power</h3>
+                <div class="parts-list">
+                  <div class="part-row"><span>Average watts</span><strong id="avgWatts">4,320</strong></div>
+                  <div class="part-row"><span>Maximum watts</span><strong id="maxWatts">12,960</strong></div>
+                  <div class="part-row"><span>20A circuits at 80%</span><strong id="circuits">7</strong></div>
+                  <div class="part-row"><span>Power jumpers</span><strong id="powerJumpers">65</strong></div>
+                </div>
+              </section>
+              <section class="summary-block">
+                <h3>Ground Hardware</h3>
+                <div class="parts-list">
+                  <div class="part-row"><span>1000 mm brackets</span><strong id="brackets1000">6</strong></div>
+                  <div class="part-row"><span>500 mm brackets</span><strong id="brackets500">0</strong></div>
+                  <div class="part-row"><span>Support towers</span><strong id="towers">6</strong></div>
+                  <div class="part-row"><span>Stackers</span><strong id="stackers">18</strong></div>
+                  <div class="part-row"><span>H-tubes</span><strong id="hTubes">15</strong></div>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel status-panel">
+            <div class="panel-heading">
+              <h2>Spec Status</h2>
+              <p>Needs final shop confirmation</p>
+            </div>
+            <p>
+              Matched from the DB2.6 model number against InfiLED public specs. Confirm the full
+              IL-RSS-IRDB2.6mk2 label before final quoting. Power chain limits and processor choice
+              still need shop rules or manufacturer paperwork before this becomes quote-ready.
+            </p>
+          </section>
+        </section>
+      </div>
+    </main>
+    <script src="src/app.js"></script>
+  </body>
+</html>
