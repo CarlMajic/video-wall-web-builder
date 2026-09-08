@@ -47,6 +47,57 @@ function compactFeet(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
+function buildBlenderLayout({
+  requestedWidthFt,
+  requestedHeightFt,
+  pixelPitchMm,
+  supportMode,
+  towerSpacingM,
+  includeHTubes,
+  addRightEdgeTower,
+  result,
+}: {
+  requestedWidthFt: number;
+  requestedHeightFt: number;
+  pixelPitchMm: number;
+  supportMode: 'GROUND' | 'FLOWN';
+  towerSpacingM: number;
+  includeHTubes: boolean;
+  addRightEdgeTower: boolean;
+  result: {
+    columns: number;
+    rows: number;
+    cabinets: number;
+    actualWidthMm: number;
+    actualHeightMm: number;
+    totalPixelsWide: number;
+    totalPixelsHigh: number;
+  };
+}) {
+  return {
+    schema: 'majic.video_wall.blender_layout',
+    version: 1,
+    source: 'Video Wall Web Builder',
+    vendor: INFILED_PROFILE.vendor,
+    model: INFILED_PROFILE.model,
+    wall_name: `Video Wall ${result.columns}x${result.rows}`,
+    columns: result.columns,
+    rows: result.rows,
+    support_mode: supportMode,
+    support_spacing: towerSpacingM.toFixed(1),
+    include_h_tubes: supportMode === 'GROUND' && includeHTubes,
+    add_right_edge_tower: supportMode === 'GROUND' && addRightEdgeTower,
+    requested_width_ft: requestedWidthFt,
+    requested_height_ft: requestedHeightFt,
+    actual_width_mm: result.actualWidthMm,
+    actual_height_mm: result.actualHeightMm,
+    pixel_pitch_mm: pixelPitchMm,
+    total_pixels_width: result.totalPixelsWide,
+    total_pixels_height: result.totalPixelsHigh,
+    cabinet_count: result.cabinets,
+  };
+}
+
 export default function Home() {
   const [requestedWidthFt, setRequestedWidthFt] = useState(DEFAULT_WIDTH_FT);
   const [requestedHeightFt, setRequestedHeightFt] = useState(DEFAULT_HEIGHT_FT);
@@ -154,7 +205,19 @@ export default function Home() {
   }
 
   function exportJson() {
+    const blender_layout = buildBlenderLayout({
+      requestedWidthFt,
+      requestedHeightFt,
+      pixelPitchMm,
+      supportMode,
+      towerSpacingM,
+      includeHTubes,
+      addRightEdgeTower,
+      result,
+    });
     const payload = {
+      schema: 'majic.video_wall.web_builder',
+      version: 1,
       profile: INFILED_PROFILE,
       processor: PROCESSOR_PROFILE,
       request: {
@@ -167,6 +230,7 @@ export default function Home() {
         addRightEdgeTower,
       },
       result,
+      blender_layout,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

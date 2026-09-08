@@ -79,6 +79,31 @@ function formatNumber(value) {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
+function buildBlenderLayout(request, result) {
+  return {
+    schema: 'majic.video_wall.blender_layout',
+    version: 1,
+    source: 'Video Wall Web Builder',
+    vendor: INFILED_PROFILE.vendor,
+    model: INFILED_PROFILE.model,
+    wall_name: `Video Wall ${result.columns}x${result.rows}`,
+    columns: result.columns,
+    rows: result.rows,
+    support_mode: request.supportMode,
+    support_spacing: request.towerSpacingM.toFixed(1),
+    include_h_tubes: request.supportMode === 'GROUND' && request.includeHTubes,
+    add_right_edge_tower: request.supportMode === 'GROUND' && request.addRightEdgeTower,
+    requested_width_ft: request.widthFt,
+    requested_height_ft: request.heightFt,
+    actual_width_mm: result.actualWidthMm,
+    actual_height_mm: result.actualHeightMm,
+    pixel_pitch_mm: request.pixelPitchMm,
+    total_pixels_width: result.totalPixelsWide,
+    total_pixels_height: result.totalPixelsHigh,
+    cabinet_count: result.cabinets,
+  };
+}
+
 function calculate() {
   const requestedWidthFt = Number(elements.requestedWidthFt.value);
   const requestedHeightFt = Number(elements.requestedHeightFt.value);
@@ -190,7 +215,15 @@ function renderWallGrid(columns, rows, cabinets) {
 
 function update() {
   const { request, result } = calculate();
-  latestResult = { profile: INFILED_PROFILE, processor: PROCESSOR_PROFILE, request, result };
+  latestResult = {
+    schema: 'majic.video_wall.web_builder',
+    version: 1,
+    profile: INFILED_PROFILE,
+    processor: PROCESSOR_PROFILE,
+    request,
+    result,
+    blender_layout: buildBlenderLayout(request, result),
+  };
 
   const flown = request.supportMode === 'FLOWN';
   elements.towerSpacingM.disabled = flown;

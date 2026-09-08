@@ -23,3 +23,10 @@ docs/
 ```
 
 GitHub Pages should publish from the `main` branch using the `/docs` folder.
+
+## Blender Handoff
+
+The web builder's `Export JSON` button includes a `blender_layout` block. The
+Blender InfiLED Video Wall Builder add-on can import that JSON and assemble the
+wall using the exported columns, rows, support mode, tower spacing, H-tube
+setting, and right-edge tower setting.
