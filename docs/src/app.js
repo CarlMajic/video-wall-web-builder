@@ -1,6 +1,8 @@
 const MM_PER_FOOT = 304.8;
-const DEFAULT_WIDTH_FT = 20;
-const DEFAULT_HEIGHT_FT = 10;
+const DEFAULT_COLUMNS = 10;
+const DEFAULT_ROWS = 6;
+const STANDARD_WALL_COLUMNS = 10;
+const STANDARD_WALL_ROWS = 6;
 
 const INFILED_PROFILE = {
   vendor: 'InfiLED',
@@ -11,29 +13,51 @@ const INFILED_PROFILE = {
   pixelPitchMm: 2.6,
   cabinetPixelsWide: 192,
   cabinetPixelsHigh: 192,
-  avgWatts: 60,
-  maxWatts: 180,
+  avgWatts: 50,
+  maxWatts: 150,
   weightLb: 18.52,
   brightnessNits: 2000,
   refreshHz: 7680,
-  sourceNote:
-    'Matched from the DB2.6 model number against InfiLED public specs. Confirm the full IL-RSS-IRDB2.6mk2 label before final quoting.',
 };
 
-const PROCESSOR_PROFILE = {
-  name: 'NovaStar MCTRL600',
-  ports: 4,
-  pixelsPerPort: 650000,
+const PROCESSOR_PROFILES = [
+  {
+    id: 'mx30',
+    name: 'NovaStar MX30',
+    ports: 10,
+    pixelsPerPort: 659722,
+    maxPixels: 6500000,
+  },
+  {
+    id: 'mctrl4k',
+    name: 'NovaStar MCTRL4K',
+    ports: 16,
+    pixelsPerPort: 650000,
+    maxPixels: 8800000,
+  },
+];
+
+const GROUND_SUPPORT_KIT = {
+  stackingStackers: 12,
+  hTubes: 9,
+  stackingSkis: 4,
+  dockingLocks: 12,
 };
 
 const elements = {
-  requestedWidthFt: document.querySelector('#requestedWidthFt'),
-  requestedHeightFt: document.querySelector('#requestedHeightFt'),
+  columns: document.querySelector('#columns'),
+  rows: document.querySelector('#rows'),
+  decreaseColumns: document.querySelector('#decreaseColumns'),
+  increaseColumns: document.querySelector('#increaseColumns'),
+  decreaseRows: document.querySelector('#decreaseRows'),
+  increaseRows: document.querySelector('#increaseRows'),
+  widthMeasurement: document.querySelector('#widthMeasurement'),
+  heightMeasurement: document.querySelector('#heightMeasurement'),
   pixelPitchMm: document.querySelector('#pixelPitchMm'),
+  processorId: document.querySelector('#processorId'),
+  voltage: document.querySelector('#voltage'),
+  backupData: document.querySelector('#backupData'),
   supportMode: document.querySelector('#supportMode'),
-  towerSpacingM: document.querySelector('#towerSpacingM'),
-  includeHTubes: document.querySelector('#includeHTubes'),
-  addRightEdgeTower: document.querySelector('#addRightEdgeTower'),
   resetButton: document.querySelector('#resetButton'),
   exportFullJsonButton: document.querySelector('#exportFullJsonButton'),
   exportLassoCsvButton: document.querySelector('#exportLassoCsvButton'),
@@ -45,40 +69,43 @@ const elements = {
   resolution: document.querySelector('#resolution'),
   processors: document.querySelector('#processors'),
   wallGrid: document.querySelector('#wallGrid'),
-  requestedSize: document.querySelector('#requestedSize'),
-  shortfall: document.querySelector('#shortfall'),
+  panelLayout: document.querySelector('#panelLayout'),
+  panelIncrement: document.querySelector('#panelIncrement'),
   totalPixels: document.querySelector('#totalPixels'),
   dataPorts: document.querySelector('#dataPorts'),
   cabinetsPerPort: document.querySelector('#cabinetsPerPort'),
+  dataHomeRunsLabel: document.querySelector('#dataHomeRunsLabel'),
   dataHomeRuns: document.querySelector('#dataHomeRuns'),
   dataJumpers: document.querySelector('#dataJumpers'),
   avgWatts: document.querySelector('#avgWatts'),
   maxWatts: document.querySelector('#maxWatts'),
+  circuitBasis: document.querySelector('#circuitBasis'),
   circuits: document.querySelector('#circuits'),
   powerJumpers: document.querySelector('#powerJumpers'),
-  brackets1000: document.querySelector('#brackets1000'),
-  brackets500: document.querySelector('#brackets500'),
-  towers: document.querySelector('#towers'),
-  stackers: document.querySelector('#stackers'),
-  hTubes: document.querySelector('#hTubes'),
+  hardwareTitle: document.querySelector('#hardwareTitle'),
+  hardwareSummaryList: document.querySelector('#hardwareSummaryList'),
 };
 
 let latestResult = null;
 
-function clampNumber(value, fallback) {
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+function clampWholeNumber(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? Math.max(1, Math.round(value)) : fallback;
 }
 
 function formatFeet(mm) {
   return `${(mm / MM_PER_FOOT).toFixed(2)} ft`;
 }
 
-function compactFeet(value) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
 function formatNumber(value) {
   return new Intl.NumberFormat('en-US').format(value);
+}
+
+function formatVoltage(value) {
+  return `${value}V`;
+}
+
+function selectedProcessor() {
+  return PROCESSOR_PROFILES.find((profile) => profile.id === elements.processorId.value) ?? PROCESSOR_PROFILES[0];
 }
 
 function buildBlenderLayout(request, result) {
@@ -92,11 +119,14 @@ function buildBlenderLayout(request, result) {
     columns: result.columns,
     rows: result.rows,
     support_mode: request.supportMode,
-    support_spacing: request.towerSpacingM.toFixed(1),
-    include_h_tubes: request.supportMode === 'GROUND' && request.includeHTubes,
-    add_right_edge_tower: request.supportMode === 'GROUND' && request.addRightEdgeTower,
-    requested_width_ft: request.widthFt,
-    requested_height_ft: request.heightFt,
+    support_spacing: '1.0',
+    include_h_tubes: request.supportMode === 'GROUND',
+    add_right_edge_tower: false,
+    requested_width_ft: result.actualWidthMm / MM_PER_FOOT,
+    requested_height_ft: result.actualHeightMm / MM_PER_FOOT,
+    processor: request.processor.name,
+    backup_data: request.backupData,
+    power_voltage: request.voltage,
     actual_width_mm: result.actualWidthMm,
     actual_height_mm: result.actualHeightMm,
     pixel_pitch_mm: request.pixelPitchMm,
@@ -106,20 +136,27 @@ function buildBlenderLayout(request, result) {
   };
 }
 
-function buildLassoRows(result, supportMode) {
+function buildLassoRows(result, request) {
   const note = `${INFILED_PROFILE.model}; ${formatNumber(result.totalPixelsWide)} x ${formatNumber(result.totalPixelsHigh)} px`;
+  const hardwareCategory = request.supportMode === 'FLOWN' ? 'Flown Hardware' : 'Ground Hardware';
+  const groundReviewNote = result.needsGroundReview
+    ? 'Ground-support plan requires technician or Production Manager review'
+    : 'Included as complete IE ground support kit';
+
   return [
     { category: 'Video Wall', sku: '', item: 'InfiLED DB2.6 LED Cabinet', quantity: result.cabinets, unit: 'each', notes: note },
-    { category: 'Video Processing', sku: '', item: PROCESSOR_PROFILE.name, quantity: result.processors, unit: 'each', notes: 'Estimated from pixel count and data ports' },
-    { category: 'Signal', sku: '', item: 'Video Wall Data Home Run', quantity: result.dataHomeRuns, unit: 'each', notes: 'One home run per calculated data port' },
-    { category: 'Signal', sku: '', item: 'Video Wall Data Jumper', quantity: result.dataJumpers, unit: 'each', notes: 'Starter estimate; confirm shop cable rule' },
-    { category: 'Power', sku: '', item: '20A Video Wall Circuit', quantity: result.circuits, unit: 'each', notes: 'Estimated from max watts at 80 percent load' },
-    { category: 'Power', sku: '', item: 'Video Wall Power Jumper', quantity: result.powerJumpers, unit: 'each', notes: 'Placeholder estimate; confirm manufacturer chain limits' },
-    { category: 'Hardware', sku: '', item: 'InfiLED 1000mm Hanging Bracket', quantity: result.brackets1000, unit: 'each', notes: supportMode },
-    { category: 'Hardware', sku: '', item: 'InfiLED 500mm Hanging Bracket', quantity: result.brackets500, unit: 'each', notes: supportMode },
-    { category: 'Ground Support', sku: '', item: 'InfiLED Support Tower', quantity: result.towers, unit: 'each', notes: 'Ground support only' },
-    { category: 'Ground Support', sku: '', item: 'InfiLED Stacking Stacker', quantity: result.stackers, unit: 'each', notes: 'Ground support only' },
-    { category: 'Ground Support', sku: '', item: 'InfiLED H-Tube', quantity: result.hTubes, unit: 'each', notes: 'Ground support only' },
+    { category: 'Video Processing', sku: '', item: request.processor.name, quantity: result.processors, unit: 'each', notes: 'Estimated from pixel count and data ports' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Home Run', quantity: result.dataHomeRuns, unit: 'each', notes: request.backupData ? 'Main and backup data runs' : 'Without backup data' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Jumper', quantity: result.dataJumpers, unit: 'each', notes: 'Matched to panel count for spares' },
+    { category: 'Power', sku: '', item: '20A Video Wall Circuit', quantity: result.circuits, unit: 'each', notes: `16A usable at ${formatVoltage(request.voltage)}` },
+    { category: 'Power', sku: '', item: 'Video Wall Power Jumper', quantity: result.powerJumpers, unit: 'each', notes: 'Matched to panel count for spares' },
+    { category: hardwareCategory, sku: '', item: 'Dual Header/Footer', quantity: result.dualHeaderFooters, unit: 'each', notes: request.supportMode },
+    { category: hardwareCategory, sku: '', item: 'Single Header/Footer', quantity: result.singleHeaderFooters, unit: 'each', notes: request.supportMode },
+    { category: 'Ground Support', sku: '', item: 'Ground Support Kit', quantity: result.groundSupportKits, unit: 'kit', notes: groundReviewNote },
+    { category: 'Ground Support', sku: '', item: 'Stacking Stacker', quantity: result.stackingStackers, unit: 'each', notes: 'Kit contents for standard wall' },
+    { category: 'Ground Support', sku: '', item: 'H-Tube', quantity: result.hTubes, unit: 'each', notes: 'Kit contents for standard wall' },
+    { category: 'Ground Support', sku: '', item: 'Stacking Ski', quantity: result.stackingSkis, unit: 'each', notes: 'Kit contents for standard wall' },
+    { category: 'Ground Support', sku: '', item: 'Docking Lock', quantity: result.dockingLocks, unit: 'each', notes: 'Kit contents for standard wall' },
   ].filter((row) => row.quantity > 0);
 }
 
@@ -129,18 +166,14 @@ function csvEscape(value) {
 }
 
 function calculate() {
-  const requestedWidthFt = Number(elements.requestedWidthFt.value);
-  const requestedHeightFt = Number(elements.requestedHeightFt.value);
+  const columns = clampWholeNumber(Number(elements.columns.value), DEFAULT_COLUMNS);
+  const rows = clampWholeNumber(Number(elements.rows.value), DEFAULT_ROWS);
   const pixelPitchMm = Number(elements.pixelPitchMm.value);
+  const pitch = Number.isFinite(pixelPitchMm) && pixelPitchMm > 0 ? pixelPitchMm : INFILED_PROFILE.pixelPitchMm;
+  const processor = selectedProcessor();
+  const voltage = Number(elements.voltage.value);
+  const backupData = elements.backupData.checked;
   const supportMode = elements.supportMode.value;
-  const towerSpacingM = Number(elements.towerSpacingM.value);
-  const includeHTubes = elements.includeHTubes.checked;
-  const addRightEdgeTower = elements.addRightEdgeTower.checked;
-  const widthMm = clampNumber(requestedWidthFt, DEFAULT_WIDTH_FT) * MM_PER_FOOT;
-  const heightMm = clampNumber(requestedHeightFt, DEFAULT_HEIGHT_FT) * MM_PER_FOOT;
-  const pitch = clampNumber(pixelPitchMm, INFILED_PROFILE.pixelPitchMm);
-  const columns = Math.max(1, Math.floor(widthMm / INFILED_PROFILE.cabinetWidthMm));
-  const rows = Math.max(1, Math.floor(heightMm / INFILED_PROFILE.cabinetHeightMm));
   const actualWidthMm = columns * INFILED_PROFILE.cabinetWidthMm;
   const actualHeightMm = rows * INFILED_PROFILE.cabinetHeightMm;
   const cabinets = columns * rows;
@@ -155,43 +188,29 @@ function calculate() {
   const totalPixelsWide = columns * cabinetPixelsWide;
   const totalPixelsHigh = rows * cabinetPixelsHigh;
   const totalPixels = totalPixelsWide * totalPixelsHigh;
-  const cabinetsPerPort = Math.max(
-    1,
-    Math.floor(PROCESSOR_PROFILE.pixelsPerPort / (cabinetPixelsWide * cabinetPixelsHigh)),
-  );
+  const cabinetPixels = cabinetPixelsWide * cabinetPixelsHigh;
+  const cabinetsPerPort = Math.max(1, Math.floor(processor.pixelsPerPort / cabinetPixels));
   const dataPorts = Math.ceil(cabinets / cabinetsPerPort);
-  const processors = Math.ceil(dataPorts / PROCESSOR_PROFILE.ports);
+  const processors = Math.max(Math.ceil(dataPorts / processor.ports), Math.ceil(totalPixels / processor.maxPixels));
   const maxWatts = cabinets * INFILED_PROFILE.maxWatts;
   const avgWatts = cabinets * INFILED_PROFILE.avgWatts;
-  const safeCircuitWatts = 120 * 20 * 0.8;
+  const safeCircuitWatts = voltage * 16;
   const circuits = Math.ceil(maxWatts / safeCircuitWatts);
-  const widthM = actualWidthMm / 1000;
-  const heightM = actualHeightMm / 1000;
-  const towers = [];
-
-  for (let value = 0; value < widthM - 0.0001; value += towerSpacingM) {
-    towers.push(value);
-  }
-
-  if (addRightEdgeTower && Math.abs((towers.at(-1) ?? -1) - widthM) > 0.001) {
-    towers.push(widthM);
-  }
-
-  const stackerLevels = Math.max(1, Math.ceil(heightM));
-  const hTubes =
-    supportMode === 'GROUND' && includeHTubes
-      ? Math.max(0, towers.length - 1) * stackerLevels
-      : 0;
+  const dualHeaderFooters = Math.floor(columns / 2);
+  const singleHeaderFooters = columns % 2;
+  const includeGroundKit = supportMode === 'GROUND' && columns <= STANDARD_WALL_COLUMNS && rows <= STANDARD_WALL_ROWS;
+  const needsGroundReview = supportMode === 'GROUND' && !includeGroundKit;
 
   return {
     request: {
-      widthFt: requestedWidthFt,
-      heightFt: requestedHeightFt,
-      pixelPitchMm,
+      columns,
+      rows,
+      pixelPitchMm: pitch,
+      processorId: processor.id,
+      processor,
+      voltage,
+      backupData,
       supportMode,
-      towerSpacingM,
-      includeHTubes,
-      addRightEdgeTower,
     },
     result: {
       columns,
@@ -199,8 +218,6 @@ function calculate() {
       cabinets,
       actualWidthMm,
       actualHeightMm,
-      shortWidthMm: widthMm - actualWidthMm,
-      shortHeightMm: heightMm - actualHeightMm,
       cabinetPixelsWide,
       cabinetPixelsHigh,
       totalPixelsWide,
@@ -212,15 +229,18 @@ function calculate() {
       avgWatts,
       maxWatts,
       circuits,
-      dataHomeRuns: dataPorts,
-      dataJumpers: Math.max(0, cabinets - dataPorts),
-      powerJumpers: Math.max(0, cabinets - circuits),
-      brackets1000: Math.floor(columns / 2),
-      brackets500: columns % 2,
-      towers: supportMode === 'GROUND' ? towers.length : 0,
-      stackerLevels: supportMode === 'GROUND' ? stackerLevels : 0,
-      stackers: supportMode === 'GROUND' ? towers.length * stackerLevels : 0,
-      hTubes,
+      safeCircuitWatts,
+      dataHomeRuns: backupData ? dataPorts * 2 : dataPorts,
+      dataJumpers: cabinets,
+      powerJumpers: cabinets,
+      dualHeaderFooters,
+      singleHeaderFooters,
+      groundSupportKits: includeGroundKit ? 1 : 0,
+      stackingStackers: includeGroundKit ? GROUND_SUPPORT_KIT.stackingStackers : 0,
+      stackingSkis: includeGroundKit ? GROUND_SUPPORT_KIT.stackingSkis : 0,
+      hTubes: includeGroundKit ? GROUND_SUPPORT_KIT.hTubes : 0,
+      dockingLocks: includeGroundKit ? GROUND_SUPPORT_KIT.dockingLocks : 0,
+      needsGroundReview,
     },
   };
 }
@@ -237,57 +257,103 @@ function renderWallGrid(columns, rows, cabinets) {
   }
 }
 
+function renderHardwareSummary(result, supportMode) {
+  const rows = [
+    ['Dual Header/Footer', result.dualHeaderFooters],
+    ['Single Header/Footer', result.singleHeaderFooters],
+  ];
+
+  if (supportMode === 'GROUND') {
+    rows.push(['Ground Support Kit', result.groundSupportKits || 'Review required']);
+
+    if (result.groundSupportKits) {
+      rows.push(
+        ['Stacking Stackers', result.stackingStackers],
+        ['H-Tubes', result.hTubes],
+        ['Stacking Skis', result.stackingSkis],
+        ['Docking Locks', result.dockingLocks],
+      );
+    }
+  } else {
+    rows.push(['Ground-support items', 'Not included']);
+  }
+
+  elements.hardwareSummaryList.replaceChildren(
+    ...rows.map(([label, value]) => {
+      const row = document.createElement('div');
+      const rowLabel = document.createElement('span');
+      const rowValue = document.createElement('strong');
+      row.className = 'part-row';
+      rowLabel.textContent = String(label);
+      rowValue.textContent = String(value);
+      row.append(rowLabel, rowValue);
+      return row;
+    }),
+  );
+}
+
 function update() {
   const { request, result } = calculate();
   latestResult = {
     schema: 'majic.video_wall.web_builder',
     version: 1,
     profile: INFILED_PROFILE,
-    processor: PROCESSOR_PROFILE,
+    processor: request.processor,
     request,
     result,
     blender_layout: buildBlenderLayout(request, result),
-    lasso_rows: buildLassoRows(result, request.supportMode),
+    lasso_rows: buildLassoRows(result, request),
   };
 
-  const flown = request.supportMode === 'FLOWN';
-  elements.towerSpacingM.disabled = flown;
-  elements.includeHTubes.disabled = flown;
-  elements.addRightEdgeTower.disabled = flown;
-
+  elements.columns.value = String(result.columns);
+  elements.rows.value = String(result.rows);
+  elements.widthMeasurement.textContent = `${formatFeet(result.actualWidthMm)} wide`;
+  elements.heightMeasurement.textContent = `${formatFeet(result.actualHeightMm)} tall`;
   elements.cabinetPixels.textContent = `${result.cabinetPixelsWide} x ${result.cabinetPixelsHigh}`;
-  elements.previewNote.textContent = `${result.columns} columns x ${result.rows} rows, fit under requested size`;
+  elements.previewNote.textContent = `${result.columns} columns x ${result.rows} rows, adjusted in 500 mm panel increments`;
   elements.actualWall.textContent = `${formatFeet(result.actualWidthMm)} x ${formatFeet(result.actualHeightMm)}`;
   elements.panelCount.textContent = String(result.cabinets);
   elements.resolution.textContent = `${formatNumber(result.totalPixelsWide)} x ${formatNumber(result.totalPixelsHigh)}`;
-  elements.processors.textContent = `${result.processors} x ${PROCESSOR_PROFILE.name}`;
-  elements.requestedSize.textContent = `${compactFeet(request.widthFt)} ft x ${compactFeet(request.heightFt)} ft`;
-  elements.shortfall.textContent = `${formatFeet(result.shortWidthMm)} x ${formatFeet(result.shortHeightMm)}`;
+  elements.processors.textContent = `${result.processors} x ${request.processor.name}`;
+  elements.panelLayout.textContent = `${result.columns} columns x ${result.rows} rows`;
+  elements.panelIncrement.textContent = `${formatFeet(INFILED_PROFILE.cabinetWidthMm)} per panel`;
   elements.totalPixels.textContent = formatNumber(result.totalPixels);
   elements.dataPorts.textContent = String(result.dataPorts);
   elements.cabinetsPerPort.textContent = String(result.cabinetsPerPort);
+  elements.dataHomeRunsLabel.textContent = request.backupData
+    ? 'Data home runs with backup'
+    : 'Data home runs without backup';
   elements.dataHomeRuns.textContent = String(result.dataHomeRuns);
   elements.dataJumpers.textContent = String(result.dataJumpers);
   elements.avgWatts.textContent = formatNumber(result.avgWatts);
   elements.maxWatts.textContent = formatNumber(result.maxWatts);
+  elements.circuitBasis.textContent = `16A usable (20A circuit at 80%) at ${formatVoltage(request.voltage)}`;
   elements.circuits.textContent = String(result.circuits);
   elements.powerJumpers.textContent = String(result.powerJumpers);
-  elements.brackets1000.textContent = String(result.brackets1000);
-  elements.brackets500.textContent = String(result.brackets500);
-  elements.towers.textContent = String(result.towers);
-  elements.stackers.textContent = String(result.stackers);
-  elements.hTubes.textContent = String(result.hTubes);
+  elements.hardwareTitle.textContent = request.supportMode === 'FLOWN' ? 'Flown Hardware' : 'Ground Hardware';
+
+  renderHardwareSummary(result, request.supportMode);
   renderWallGrid(result.columns, result.rows, result.cabinets);
 }
 
+function changeColumns(delta) {
+  elements.columns.value = String(Math.max(1, clampWholeNumber(Number(elements.columns.value), DEFAULT_COLUMNS) + delta));
+  update();
+}
+
+function changeRows(delta) {
+  elements.rows.value = String(Math.max(1, clampWholeNumber(Number(elements.rows.value), DEFAULT_ROWS) + delta));
+  update();
+}
+
 function resetBuilder() {
-  elements.requestedWidthFt.value = String(DEFAULT_WIDTH_FT);
-  elements.requestedHeightFt.value = String(DEFAULT_HEIGHT_FT);
+  elements.columns.value = String(DEFAULT_COLUMNS);
+  elements.rows.value = String(DEFAULT_ROWS);
   elements.pixelPitchMm.value = String(INFILED_PROFILE.pixelPitchMm);
+  elements.processorId.value = 'mx30';
+  elements.voltage.value = '120';
+  elements.backupData.checked = false;
   elements.supportMode.value = 'GROUND';
-  elements.towerSpacingM.value = '1';
-  elements.includeHTubes.checked = true;
-  elements.addRightEdgeTower.checked = false;
   update();
 }
 
@@ -329,18 +395,22 @@ function exportFullJson() {
 }
 
 [
-  elements.requestedWidthFt,
-  elements.requestedHeightFt,
+  elements.columns,
+  elements.rows,
   elements.pixelPitchMm,
+  elements.processorId,
+  elements.voltage,
+  elements.backupData,
   elements.supportMode,
-  elements.towerSpacingM,
-  elements.includeHTubes,
-  elements.addRightEdgeTower,
 ].forEach((element) => {
   element.addEventListener('input', update);
   element.addEventListener('change', update);
 });
 
+elements.decreaseColumns.addEventListener('click', () => changeColumns(-1));
+elements.increaseColumns.addEventListener('click', () => changeColumns(1));
+elements.decreaseRows.addEventListener('click', () => changeRows(-1));
+elements.increaseRows.addEventListener('click', () => changeRows(1));
 elements.resetButton.addEventListener('click', resetBuilder);
 elements.exportFullJsonButton.addEventListener('click', exportFullJson);
 elements.exportLassoCsvButton.addEventListener('click', exportLassoCsv);

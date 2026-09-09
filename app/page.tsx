@@ -4,8 +4,11 @@ import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 
 const MM_PER_FOOT = 304.8;
-const DEFAULT_WIDTH_FT = 20;
-const DEFAULT_HEIGHT_FT = 10;
+const INCHES_PER_MM = 0.0393701;
+const DEFAULT_COLUMNS = 10;
+const DEFAULT_ROWS = 6;
+const STANDARD_WALL_COLUMNS = 10;
+const STANDARD_WALL_ROWS = 6;
 
 const INFILED_PROFILE = {
   vendor: 'InfiLED',
@@ -16,54 +19,71 @@ const INFILED_PROFILE = {
   pixelPitchMm: 2.6,
   cabinetPixelsWide: 192,
   cabinetPixelsHigh: 192,
-  avgWatts: 60,
-  maxWatts: 180,
+  avgWatts: 50,
+  maxWatts: 150,
   weightLb: 18.52,
   brightnessNits: 2000,
   refreshHz: 7680,
-  sourceNote:
-    'Matched from the DB2.6 model number against InfiLED public specs. Confirm the full IL-RSS-IRDB2.6mk2 label before final quoting.',
 };
 
-const PROCESSOR_PROFILE = {
-  name: 'NovaStar MCTRL600',
-  ports: 4,
-  pixelsPerPort: 650000,
+const PROCESSOR_PROFILES = [
+  {
+    id: 'mx30',
+    name: 'NovaStar MX30',
+    ports: 10,
+    pixelsPerPort: 659722,
+    maxPixels: 6500000,
+  },
+  {
+    id: 'mctrl4k',
+    name: 'NovaStar MCTRL4K',
+    ports: 16,
+    pixelsPerPort: 650000,
+    maxPixels: 8800000,
+  },
+] as const;
+
+const GROUND_SUPPORT_KIT = {
+  dualHeaderFooters: 5,
+  stackingStackers: 12,
+  hTubes: 9,
+  stackingSkis: 4,
+  dockingLocks: 12,
 };
 
 function formatFeet(mm: number) {
   return `${(mm / MM_PER_FOOT).toFixed(2)} ft`;
 }
 
+function formatInches(mm: number) {
+  return `${(mm * INCHES_PER_MM).toFixed(2)} in`;
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
-function clampNumber(value: number, fallback: number) {
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+function clampWholeNumber(value: number, fallback: number) {
+  return Number.isFinite(value) && value > 0 ? Math.max(1, Math.round(value)) : fallback;
 }
 
-function compactFeet(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+function formatVoltage(value: number) {
+  return `${value}V`;
 }
 
 function buildBlenderLayout({
-  requestedWidthFt,
-  requestedHeightFt,
+  processorName,
+  backupData,
+  voltage,
   pixelPitchMm,
   supportMode,
-  towerSpacingM,
-  includeHTubes,
-  addRightEdgeTower,
   result,
 }: {
-  requestedWidthFt: number;
-  requestedHeightFt: number;
+  processorName: string;
+  backupData: boolean;
+  voltage: number;
   pixelPitchMm: number;
   supportMode: 'GROUND' | 'FLOWN';
-  towerSpacingM: number;
-  includeHTubes: boolean;
-  addRightEdgeTower: boolean;
   result: {
     columns: number;
     rows: number;
@@ -84,11 +104,14 @@ function buildBlenderLayout({
     columns: result.columns,
     rows: result.rows,
     support_mode: supportMode,
-    support_spacing: towerSpacingM.toFixed(1),
-    include_h_tubes: supportMode === 'GROUND' && includeHTubes,
-    add_right_edge_tower: supportMode === 'GROUND' && addRightEdgeTower,
-    requested_width_ft: requestedWidthFt,
-    requested_height_ft: requestedHeightFt,
+    support_spacing: '1.0',
+    include_h_tubes: supportMode === 'GROUND',
+    add_right_edge_tower: false,
+    requested_width_ft: result.actualWidthMm / MM_PER_FOOT,
+    requested_height_ft: result.actualHeightMm / MM_PER_FOOT,
+    processor: processorName,
+    backup_data: backupData,
+    power_voltage: voltage,
     actual_width_mm: result.actualWidthMm,
     actual_height_mm: result.actualHeightMm,
     pixel_pitch_mm: pixelPitchMm,
@@ -101,6 +124,9 @@ function buildBlenderLayout({
 function buildLassoRows({
   result,
   supportMode,
+  processorName,
+  backupData,
+  voltage,
 }: {
   result: {
     cabinets: number;
@@ -109,29 +135,42 @@ function buildLassoRows({
     dataJumpers: number;
     circuits: number;
     powerJumpers: number;
-    brackets1000: number;
-    brackets500: number;
-    towers: number;
-    stackers: number;
+    dualHeaderFooters: number;
+    singleHeaderFooters: number;
+    groundSupportKits: number;
+    stackingStackers: number;
+    stackingSkis: number;
     hTubes: number;
+    dockingLocks: number;
+    needsGroundReview: boolean;
     totalPixelsWide: number;
     totalPixelsHigh: number;
   };
   supportMode: 'GROUND' | 'FLOWN';
+  processorName: string;
+  backupData: boolean;
+  voltage: number;
 }) {
   const note = `${INFILED_PROFILE.model}; ${formatNumber(result.totalPixelsWide)} x ${formatNumber(result.totalPixelsHigh)} px`;
+  const hardwareCategory = supportMode === 'FLOWN' ? 'Flown Hardware' : 'Ground Hardware';
+  const groundReviewNote = result.needsGroundReview
+    ? 'Ground-support plan requires technician or Production Manager review'
+    : 'Included as complete IE ground support kit';
+
   return [
     { category: 'Video Wall', sku: '', item: 'InfiLED DB2.6 LED Cabinet', quantity: result.cabinets, unit: 'each', notes: note },
-    { category: 'Video Processing', sku: '', item: PROCESSOR_PROFILE.name, quantity: result.processors, unit: 'each', notes: 'Estimated from pixel count and data ports' },
-    { category: 'Signal', sku: '', item: 'Video Wall Data Home Run', quantity: result.dataHomeRuns, unit: 'each', notes: 'One home run per calculated data port' },
-    { category: 'Signal', sku: '', item: 'Video Wall Data Jumper', quantity: result.dataJumpers, unit: 'each', notes: 'Starter estimate; confirm shop cable rule' },
-    { category: 'Power', sku: '', item: '20A Video Wall Circuit', quantity: result.circuits, unit: 'each', notes: 'Estimated from max watts at 80 percent load' },
-    { category: 'Power', sku: '', item: 'Video Wall Power Jumper', quantity: result.powerJumpers, unit: 'each', notes: 'Placeholder estimate; confirm manufacturer chain limits' },
-    { category: 'Hardware', sku: '', item: 'InfiLED 1000mm Hanging Bracket', quantity: result.brackets1000, unit: 'each', notes: supportMode },
-    { category: 'Hardware', sku: '', item: 'InfiLED 500mm Hanging Bracket', quantity: result.brackets500, unit: 'each', notes: supportMode },
-    { category: 'Ground Support', sku: '', item: 'InfiLED Support Tower', quantity: result.towers, unit: 'each', notes: 'Ground support only' },
-    { category: 'Ground Support', sku: '', item: 'InfiLED Stacking Stacker', quantity: result.stackers, unit: 'each', notes: 'Ground support only' },
-    { category: 'Ground Support', sku: '', item: 'InfiLED H-Tube', quantity: result.hTubes, unit: 'each', notes: 'Ground support only' },
+    { category: 'Video Processing', sku: '', item: processorName, quantity: result.processors, unit: 'each', notes: 'Estimated from pixel count and data ports' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Home Run', quantity: result.dataHomeRuns, unit: 'each', notes: backupData ? 'Main and backup data runs' : 'Without backup data' },
+    { category: 'Signal', sku: '', item: 'Video Wall Data Jumper', quantity: result.dataJumpers, unit: 'each', notes: 'Matched to panel count for spares' },
+    { category: 'Power', sku: '', item: '20A Video Wall Circuit', quantity: result.circuits, unit: 'each', notes: `16A usable at ${formatVoltage(voltage)}` },
+    { category: 'Power', sku: '', item: 'Video Wall Power Jumper', quantity: result.powerJumpers, unit: 'each', notes: 'Matched to panel count for spares' },
+    { category: hardwareCategory, sku: '', item: 'Dual Header/Footer', quantity: result.dualHeaderFooters, unit: 'each', notes: supportMode },
+    { category: hardwareCategory, sku: '', item: 'Single Header/Footer', quantity: result.singleHeaderFooters, unit: 'each', notes: supportMode },
+    { category: 'Ground Support', sku: '', item: 'Ground Support Kit', quantity: result.groundSupportKits, unit: 'kit', notes: groundReviewNote },
+    { category: 'Ground Support', sku: '', item: 'Stacking Stacker', quantity: result.stackingStackers, unit: 'each', notes: 'Kit contents for standard wall' },
+    { category: 'Ground Support', sku: '', item: 'H-Tube', quantity: result.hTubes, unit: 'each', notes: 'Kit contents for standard wall' },
+    { category: 'Ground Support', sku: '', item: 'Stacking Ski', quantity: result.stackingSkis, unit: 'each', notes: 'Kit contents for standard wall' },
+    { category: 'Ground Support', sku: '', item: 'Docking Lock', quantity: result.dockingLocks, unit: 'each', notes: 'Kit contents for standard wall' },
   ].filter((row) => row.quantity > 0);
 }
 
@@ -141,23 +180,23 @@ function csvEscape(value: string | number) {
 }
 
 export default function Home() {
-  const [requestedWidthFt, setRequestedWidthFt] = useState(DEFAULT_WIDTH_FT);
-  const [requestedHeightFt, setRequestedHeightFt] = useState(DEFAULT_HEIGHT_FT);
+  const [columns, setColumns] = useState(DEFAULT_COLUMNS);
+  const [rows, setRows] = useState(DEFAULT_ROWS);
   const [pixelPitchMm, setPixelPitchMm] = useState(INFILED_PROFILE.pixelPitchMm);
+  const [processorId, setProcessorId] = useState<(typeof PROCESSOR_PROFILES)[number]['id']>('mx30');
+  const [voltage, setVoltage] = useState(120);
+  const [backupData, setBackupData] = useState(false);
   const [supportMode, setSupportMode] = useState<'GROUND' | 'FLOWN'>('GROUND');
-  const [towerSpacingM, setTowerSpacingM] = useState(1);
-  const [includeHTubes, setIncludeHTubes] = useState(true);
-  const [addRightEdgeTower, setAddRightEdgeTower] = useState(false);
+
+  const processor = PROCESSOR_PROFILES.find((profile) => profile.id === processorId) ?? PROCESSOR_PROFILES[0];
 
   const result = useMemo(() => {
-    const widthMm = clampNumber(requestedWidthFt, DEFAULT_WIDTH_FT) * MM_PER_FOOT;
-    const heightMm = clampNumber(requestedHeightFt, DEFAULT_HEIGHT_FT) * MM_PER_FOOT;
-    const pitch = clampNumber(pixelPitchMm, INFILED_PROFILE.pixelPitchMm);
-    const columns = Math.max(1, Math.floor(widthMm / INFILED_PROFILE.cabinetWidthMm));
-    const rows = Math.max(1, Math.floor(heightMm / INFILED_PROFILE.cabinetHeightMm));
-    const actualWidthMm = columns * INFILED_PROFILE.cabinetWidthMm;
-    const actualHeightMm = rows * INFILED_PROFILE.cabinetHeightMm;
-    const cabinets = columns * rows;
+    const wallColumns = clampWholeNumber(columns, DEFAULT_COLUMNS);
+    const wallRows = clampWholeNumber(rows, DEFAULT_ROWS);
+    const pitch = Number.isFinite(pixelPitchMm) && pixelPitchMm > 0 ? pixelPitchMm : INFILED_PROFILE.pixelPitchMm;
+    const actualWidthMm = wallColumns * INFILED_PROFILE.cabinetWidthMm;
+    const actualHeightMm = wallRows * INFILED_PROFILE.cabinetHeightMm;
+    const cabinets = wallColumns * wallRows;
     const cabinetPixelsWide =
       pitch === INFILED_PROFILE.pixelPitchMm
         ? INFILED_PROFILE.cabinetPixelsWide
@@ -166,45 +205,29 @@ export default function Home() {
       pitch === INFILED_PROFILE.pixelPitchMm
         ? INFILED_PROFILE.cabinetPixelsHigh
         : Math.round(INFILED_PROFILE.cabinetHeightMm / pitch);
-    const totalPixelsWide = columns * cabinetPixelsWide;
-    const totalPixelsHigh = rows * cabinetPixelsHigh;
+    const totalPixelsWide = wallColumns * cabinetPixelsWide;
+    const totalPixelsHigh = wallRows * cabinetPixelsHigh;
     const totalPixels = totalPixelsWide * totalPixelsHigh;
-    const cabinetsPerPort = Math.max(
-      1,
-      Math.floor(PROCESSOR_PROFILE.pixelsPerPort / (cabinetPixelsWide * cabinetPixelsHigh)),
-    );
+    const cabinetPixels = cabinetPixelsWide * cabinetPixelsHigh;
+    const cabinetsPerPort = Math.max(1, Math.floor(processor.pixelsPerPort / cabinetPixels));
     const dataPorts = Math.ceil(cabinets / cabinetsPerPort);
-    const processors = Math.ceil(dataPorts / PROCESSOR_PROFILE.ports);
+    const processors = Math.max(Math.ceil(dataPorts / processor.ports), Math.ceil(totalPixels / processor.maxPixels));
     const maxWatts = cabinets * INFILED_PROFILE.maxWatts;
     const avgWatts = cabinets * INFILED_PROFILE.avgWatts;
-    const safeCircuitWatts = 120 * 20 * 0.8;
+    const safeCircuitWatts = voltage * 16;
     const circuits = Math.ceil(maxWatts / safeCircuitWatts);
-    const widthM = actualWidthMm / 1000;
-    const heightM = actualHeightMm / 1000;
-    const towers = [];
-
-    for (let value = 0; value < widthM - 0.0001; value += towerSpacingM) {
-      towers.push(value);
-    }
-
-    if (addRightEdgeTower && Math.abs((towers.at(-1) ?? -1) - widthM) > 0.001) {
-      towers.push(widthM);
-    }
-
-    const stackerLevels = Math.max(1, Math.ceil(heightM));
-    const hTubes =
-      supportMode === 'GROUND' && includeHTubes
-        ? Math.max(0, towers.length - 1) * stackerLevels
-        : 0;
+    const dualHeaderFooters = Math.floor(wallColumns / 2);
+    const singleHeaderFooters = wallColumns % 2;
+    const isStandardOrSmaller = wallColumns <= STANDARD_WALL_COLUMNS && wallRows <= STANDARD_WALL_ROWS;
+    const includeGroundKit = supportMode === 'GROUND' && isStandardOrSmaller;
+    const needsGroundReview = supportMode === 'GROUND' && !isStandardOrSmaller;
 
     return {
-      columns,
-      rows,
+      columns: wallColumns,
+      rows: wallRows,
       cabinets,
       actualWidthMm,
       actualHeightMm,
-      shortWidthMm: widthMm - actualWidthMm,
-      shortHeightMm: heightMm - actualHeightMm,
       cabinetPixelsWide,
       cabinetPixelsHigh,
       totalPixelsWide,
@@ -216,45 +239,38 @@ export default function Home() {
       avgWatts,
       maxWatts,
       circuits,
-      dataHomeRuns: dataPorts,
-      dataJumpers: Math.max(0, cabinets - dataPorts),
-      powerJumpers: Math.max(0, cabinets - circuits),
-      brackets1000: Math.floor(columns / 2),
-      brackets500: columns % 2,
-      towers: supportMode === 'GROUND' ? towers.length : 0,
-      stackerLevels: supportMode === 'GROUND' ? stackerLevels : 0,
-      stackers: supportMode === 'GROUND' ? towers.length * stackerLevels : 0,
-      hTubes,
+      safeCircuitWatts,
+      dataHomeRuns: backupData ? dataPorts * 2 : dataPorts,
+      dataJumpers: cabinets,
+      powerJumpers: cabinets,
+      dualHeaderFooters,
+      singleHeaderFooters,
+      groundSupportKits: includeGroundKit ? 1 : 0,
+      stackingStackers: includeGroundKit ? GROUND_SUPPORT_KIT.stackingStackers : 0,
+      stackingSkis: includeGroundKit ? GROUND_SUPPORT_KIT.stackingSkis : 0,
+      hTubes: includeGroundKit ? GROUND_SUPPORT_KIT.hTubes : 0,
+      dockingLocks: includeGroundKit ? GROUND_SUPPORT_KIT.dockingLocks : 0,
+      needsGroundReview,
     };
-  }, [
-    addRightEdgeTower,
-    includeHTubes,
-    pixelPitchMm,
-    requestedHeightFt,
-    requestedWidthFt,
-    supportMode,
-    towerSpacingM,
-  ]);
+  }, [backupData, columns, pixelPitchMm, processor, rows, supportMode, voltage]);
 
   function resetBuilder() {
-    setRequestedWidthFt(DEFAULT_WIDTH_FT);
-    setRequestedHeightFt(DEFAULT_HEIGHT_FT);
+    setColumns(DEFAULT_COLUMNS);
+    setRows(DEFAULT_ROWS);
     setPixelPitchMm(INFILED_PROFILE.pixelPitchMm);
+    setProcessorId('mx30');
+    setVoltage(120);
+    setBackupData(false);
     setSupportMode('GROUND');
-    setTowerSpacingM(1);
-    setIncludeHTubes(true);
-    setAddRightEdgeTower(false);
   }
 
   function blenderLayout() {
     return buildBlenderLayout({
-      requestedWidthFt,
-      requestedHeightFt,
+      processorName: processor.name,
+      backupData,
+      voltage,
       pixelPitchMm,
       supportMode,
-      towerSpacingM,
-      includeHTubes,
-      addRightEdgeTower,
       result,
     });
   }
@@ -271,7 +287,7 @@ export default function Home() {
   }
 
   function exportLassoCsv() {
-    const rows = buildLassoRows({ result, supportMode });
+    const rows = buildLassoRows({ result, supportMode, processorName: processor.name, backupData, voltage });
     const headers = ['Category', 'SKU', 'Item', 'Quantity', 'Unit', 'Notes'];
     const lines = [
       headers.join(','),
@@ -290,20 +306,20 @@ export default function Home() {
 
   function exportFullJson() {
     const blender_layout = blenderLayout();
-    const lasso_rows = buildLassoRows({ result, supportMode });
+    const lasso_rows = buildLassoRows({ result, supportMode, processorName: processor.name, backupData, voltage });
     const payload = {
       schema: 'majic.video_wall.web_builder',
       version: 1,
       profile: INFILED_PROFILE,
-      processor: PROCESSOR_PROFILE,
+      processor,
       request: {
-        widthFt: requestedWidthFt,
-        heightFt: requestedHeightFt,
+        columns,
+        rows,
         pixelPitchMm,
+        processorId,
+        voltage,
+        backupData,
         supportMode,
-        towerSpacingM,
-        includeHTubes,
-        addRightEdgeTower,
       },
       result,
       blender_layout,
@@ -328,7 +344,7 @@ export default function Home() {
               <p className="eyebrow">Majic Productions</p>
               <h1>Video Wall Builder</h1>
               <p className="subtitle">
-                Sales sizing draft for fitting whole video wall cabinets inside a requested wall size.
+                Sales sizing draft for InfiLED panel counts, processing, power, and support review.
               </p>
             </div>
           </div>
@@ -349,24 +365,20 @@ export default function Home() {
         </header>
 
         <section className="controls" aria-label="Wall controls">
-          <Field label="Width Ft">
-            <input
-              className="control-input"
-              type="number"
-              min="1"
-              step="0.5"
-              value={requestedWidthFt}
-              onChange={(event) => setRequestedWidthFt(Number(event.target.value))}
+          <Field label="Width Panels">
+            <PanelStepper
+              value={columns}
+              onChange={setColumns}
+              measurement={`${formatFeet(result.actualWidthMm)} wide`}
+              ariaLabel="Wall width in panels"
             />
           </Field>
-          <Field label="Height Ft">
-            <input
-              className="control-input"
-              type="number"
-              min="1"
-              step="0.5"
-              value={requestedHeightFt}
-              onChange={(event) => setRequestedHeightFt(Number(event.target.value))}
+          <Field label="Height Panels">
+            <PanelStepper
+              value={rows}
+              onChange={setRows}
+              measurement={`${formatFeet(result.actualHeightMm)} tall`}
+              ariaLabel="Wall height in panels"
             />
           </Field>
           <Field label="Vendor">
@@ -389,6 +401,29 @@ export default function Home() {
               onChange={(event) => setPixelPitchMm(Number(event.target.value))}
             />
           </Field>
+          <Field label="Processor">
+            <select
+              className="control-input"
+              value={processorId}
+              onChange={(event) => setProcessorId(event.target.value as (typeof PROCESSOR_PROFILES)[number]['id'])}
+            >
+              {PROCESSOR_PROFILES.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Voltage">
+            <select
+              className="control-input"
+              value={voltage}
+              onChange={(event) => setVoltage(Number(event.target.value))}
+            >
+              <option value={120}>120V</option>
+              <option value={208}>208V</option>
+            </select>
+          </Field>
           <Field label="Support">
             <select
               className="control-input"
@@ -399,35 +434,14 @@ export default function Home() {
               <option value="FLOWN">Flown</option>
             </select>
           </Field>
-          <Field label="Tower Spacing">
-            <select
-              className="control-input"
-              value={towerSpacingM}
-              onChange={(event) => setTowerSpacingM(Number(event.target.value))}
-              disabled={supportMode === 'FLOWN'}
-            >
-              <option value={1}>1000 mm</option>
-              <option value={1.5}>1500 mm</option>
-            </select>
-          </Field>
           <div className="toggle-stack">
             <label>
               <input
                 type="checkbox"
-                checked={includeHTubes}
-                onChange={(event) => setIncludeHTubes(event.target.checked)}
-                disabled={supportMode === 'FLOWN'}
+                checked={backupData}
+                onChange={(event) => setBackupData(event.target.checked)}
               />
-              H-tubes
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={addRightEdgeTower}
-                onChange={(event) => setAddRightEdgeTower(event.target.checked)}
-                disabled={supportMode === 'FLOWN'}
-              />
-              Right tower
+              Backup data
             </label>
           </div>
         </section>
@@ -436,10 +450,16 @@ export default function Home() {
           <section className="panel profile-panel">
             <PanelHeading title="Panel Profile" note={`${INFILED_PROFILE.vendor} ${INFILED_PROFILE.model}`} />
             <div className="parts-list">
-              <Row label="Cabinet size" value="500 mm x 500 mm" />
-              <Row label="Cabinet depth" value={`${INFILED_PROFILE.cabinetDepthMm} mm`} />
+              <Row
+                label="Cabinet size"
+                value={`500 mm x 500 mm (${formatInches(INFILED_PROFILE.cabinetWidthMm)} x ${formatInches(
+                  INFILED_PROFILE.cabinetHeightMm,
+                )})`}
+              />
+              <Row label="Cabinet depth" value={`${INFILED_PROFILE.cabinetDepthMm} mm (${formatInches(INFILED_PROFILE.cabinetDepthMm)})`} />
               <Row label="Cabinet pixels" value={`${result.cabinetPixelsWide} x ${result.cabinetPixelsHigh}`} />
               <Row label="Cabinet weight" value={`${INFILED_PROFILE.weightLb} lb`} />
+              <Row label="Average / max power" value={`${INFILED_PROFILE.avgWatts}W / ${INFILED_PROFILE.maxWatts}W`} />
               <Row label="Brightness" value={`${formatNumber(INFILED_PROFILE.brightnessNits)} nits`} />
               <Row label="Refresh rate" value={`${formatNumber(INFILED_PROFILE.refreshHz)} Hz`} />
             </div>
@@ -448,7 +468,7 @@ export default function Home() {
           <section className="panel preview-panel">
             <PanelHeading
               title="Wall Preview"
-              note={`${result.columns} columns x ${result.rows} rows, fit under requested size`}
+              note={`${result.columns} columns x ${result.rows} rows, adjusted in 500 mm panel increments`}
             />
             <div className="count-strip">
               <Stat label="Actual Wall" value={`${formatFeet(result.actualWidthMm)} x ${formatFeet(result.actualHeightMm)}`} />
@@ -457,7 +477,7 @@ export default function Home() {
                 label="Resolution"
                 value={`${formatNumber(result.totalPixelsWide)} x ${formatNumber(result.totalPixelsHigh)}`}
               />
-              <Stat label="Processors" value={`${result.processors} x ${PROCESSOR_PROFILE.name}`} />
+              <Stat label="Processors" value={`${result.processors} x ${processor.name}`} />
             </div>
             <div className="preview-stage">
               <div
@@ -474,10 +494,10 @@ export default function Home() {
             </div>
             <div className="fit-summary">
               <Row
-                label="Client requested"
-                value={`${compactFeet(requestedWidthFt)} ft x ${compactFeet(requestedHeightFt)} ft`}
+                label="Panel layout"
+                value={`${result.columns} columns x ${result.rows} rows`}
               />
-              <Row label="Fit shortfall" value={`${formatFeet(result.shortWidthMm)} x ${formatFeet(result.shortHeightMm)}`} />
+              <Row label="Panel increment" value={`${formatFeet(INFILED_PROFILE.cabinetWidthMm)} per panel`} />
               <Row label="Total pixels" value={formatNumber(result.totalPixels)} />
             </div>
           </section>
@@ -488,35 +508,73 @@ export default function Home() {
               <Summary title="Signal">
                 <Row label="Data ports" value={result.dataPorts} />
                 <Row label="Cabinets per port" value={result.cabinetsPerPort} />
-                <Row label="Data home runs" value={result.dataHomeRuns} />
+                <Row label={backupData ? 'Data home runs with backup' : 'Data home runs without backup'} value={result.dataHomeRuns} />
                 <Row label="Panel data jumpers" value={result.dataJumpers} />
               </Summary>
               <Summary title="Power">
                 <Row label="Average watts" value={formatNumber(result.avgWatts)} />
                 <Row label="Maximum watts" value={formatNumber(result.maxWatts)} />
-                <Row label="20A circuits at 80%" value={result.circuits} />
+                <Row label="Circuit basis" value={`16A usable (20A circuit at 80%) at ${formatVoltage(voltage)}`} />
+                <Row label="Required circuits" value={result.circuits} />
                 <Row label="Power jumpers" value={result.powerJumpers} />
               </Summary>
-              <Summary title="Ground Hardware">
-                <Row label="1000 mm brackets" value={result.brackets1000} />
-                <Row label="500 mm brackets" value={result.brackets500} />
-                <Row label="Support towers" value={result.towers} />
-                <Row label="Stackers" value={result.stackers} />
-                <Row label="H-tubes" value={result.hTubes} />
+              <Summary title={supportMode === 'FLOWN' ? 'Flown Hardware' : 'Ground Hardware'}>
+                <Row label="Dual Header/Footer" value={result.dualHeaderFooters} />
+                <Row label="Single Header/Footer" value={result.singleHeaderFooters} />
+                {supportMode === 'GROUND' ? (
+                  <>
+                    <Row label="Ground Support Kit" value={result.groundSupportKits || 'Review required'} />
+                    {result.groundSupportKits ? (
+                      <>
+                        <Row label="Stacking Stackers" value={result.stackingStackers} />
+                        <Row label="H-Tubes" value={result.hTubes} />
+                        <Row label="Stacking Skis" value={result.stackingSkis} />
+                        <Row label="Docking Locks" value={result.dockingLocks} />
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <Row label="Ground-support items" value="Not included" />
+                )}
               </Summary>
             </div>
           </section>
 
-          <section className="panel status-panel">
-            <PanelHeading title="Spec Status" note="Needs final shop confirmation" />
-            <p>
-              {INFILED_PROFILE.sourceNote} Power chain limits and processor choice still need shop rules
-              or manufacturer paperwork before this becomes quote-ready.
-            </p>
-          </section>
         </section>
       </div>
     </main>
+  );
+}
+
+function PanelStepper({
+  value,
+  onChange,
+  measurement,
+  ariaLabel,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  measurement: string;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="stepper" aria-label={ariaLabel}>
+      <button type="button" onClick={() => onChange(Math.max(1, value - 1))} aria-label={`Decrease ${ariaLabel}`}>
+        -
+      </button>
+      <input
+        className="control-input"
+        type="number"
+        min="1"
+        step="1"
+        value={value}
+        onChange={(event) => onChange(clampWholeNumber(Number(event.target.value), value))}
+      />
+      <button type="button" onClick={() => onChange(value + 1)} aria-label={`Increase ${ariaLabel}`}>
+        +
+      </button>
+      <small>{measurement}</small>
+    </div>
   );
 }
 
